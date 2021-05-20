@@ -2,12 +2,20 @@
 Simple python port scanner
 """
 
+# IMPORT STANDARD MODULES
 import argparse
 import asyncio
+from datetime import timedelta
 import logging
+import time
+
+
+# IMPORT LOCAL MODULES
 from netaddr import IPNetwork
 from queue import Queue
 from threading import Thread
+from colorama import Fore, Style
+from scapy.all import sr1, IP, ICMP, TCP, send, RandShort, conf
 
 
 handler = logging.StreamHandler()
@@ -25,7 +33,9 @@ log.addHandler(handler)
 work_queue = Queue()
 results = dict()
 NUM_THREADS = 4
-
+PADDING = 15
+SYNACK = 0x12
+RSTACK = 0x14
 DEFAULT_PORTS = [80,23,443,21,22,25,3389,110,445,139,143,
     53,135,3306,8080,1723,111,995,993,5900,1025,587,8888,
     199,1720,465,548,113,81,6001,10000,514,5060,179,1026,
@@ -80,30 +90,104 @@ def scan(q):
 
     while True:
         ip, port, protocol = q.get()
-        results[ip][protocol]['open'].append(port)
+        status = syn_scan_port(ip, port)
+        if status == 'open':
+            results[ip][protocol]['open'].append(port)
+        else:
+            results[ip][protocol]['closed'].append(port)
+        # end if
         q.task_done()
     # end while
 # end scan
 
 
-def pprint(results):
+def check_host(ip):
+    try:
+        ping = sr1(IP(dst=ip)/ICMP(), verbose=0, timeout=1)
+        if ping:
+            log.info(Fore.GREEN + f"[+] {ip} is up")
+            print(Style.RESET_ALL)
+            return True
+        else:
+            log.info(Fore.RED + f"[-] {ip} is unreachable")
+            print(Style.RESET_ALL)
+            return False
+        # end if
+    except:
+        log.info(Fore.RED + f"[-] {ip} is unreachable")
+        print(Style.RESET_ALL)
+        return False
+    # end try
+# end check_host
+
+
+def syn_scan_port(host, port):
+    # disable scapy output
+    conf.verb = 0
+
+    srcport = RandShort()
+    
+    # send a SYN packet and wait for the response
+    synack = sr1(IP(dst=host)/TCP(sport=srcport, dport=port, flags="S"))
+    resp_flags = synack.getlayer(TCP).flags
+    
+    # close the connection
+    rst = IP(dst=host)/TCP(sport=srcport, dport=port, flags='R')
+    send(rst)
+
+    # If the response was a SYNACK, the port is considered open
+    # If the response was anything else, the port is considered closed
+    if resp_flags == SYNACK:
+        return "open"
+    else:
+        return "closed"
+    # end if
+# end scan_port
+
+
+def pprint(results, show_closed=False):
+    def _format_for_columns(data, padding=PADDING+7):
+        out = ''
+        for d in data:
+            out += str(d).ljust(padding)
+        # end for
+        return out+Style.RESET_ALL
+    # end _format_for_columns
+
     for ip in results:
-        print(f'[+] {ip}')
-        print("PORT\t\tSTATE")
+        hasData = False
         for protocol in results[ip].keys():
-            for p in results[ip][protocol]['open']:
-                print(f"{p}/{protocol}\t\topen")
+            if len(results[ip][protocol]['open']) > 0:
+                print(f'[+] {ip}')
+                print('\t', _format_for_columns(['PORT', 'STATE'],PADDING+2))
+                hasData = True
+                break
+            # end if
+        # end for
+
+        if not hasData:
+            print(f'[-] {ip}')
+        # end if
+        
+        for protocol in results[ip].keys():
+            for p in sorted(results[ip][protocol]['open']):
+                print('\t',_format_for_columns([Fore.GREEN + f"{p}/{protocol}", 'open']))
             # end for
-            for p in results[ip][protocol]['closed']:
-                print(f"{p}/{protocol}\t\topen")
-            # end for
+
+            if show_closed:
+                for p in sorted(results[ip][protocol]['closed']):
+                    print('\t',_format_for_columns([Fore.RED + f"{p}/{protocol}", 'closed']))
+                # end for
+            # end if
         # end for
     # end for
+    print(Style.RESET_ALL)
 # end pprint
 
 
 def main():
     global results
+    start_time = time.time()
 
     parser = argparse.ArgumentParser(
         description = "Simple Python Port Scanner"
@@ -133,7 +217,6 @@ def main():
     )
 
     args = parser.parse_args()
-    print(args)
 
     protocol = 'tcp'
 
@@ -151,12 +234,20 @@ def main():
 
     # populate the threads:
     for ip in ips:
-        for port in ports:
-            work_queue.put([ip,port, protocol])
-        # end for
+        up = check_host(ip)
+        if up:
+            for port in ports:
+                work_queue.put([ip,port, protocol])
+            # end for
+        else:
+            continue
+        # end if
     # end for
     work_queue.join()
-    print('\n[+] Complete.\n')
+    log.info('[+] Complete')
+    elapsed = time.time() - start_time
+    log.info(f'[*] Scan Took: {timedelta(seconds=elapsed)}')
+    print()
     pprint(results)
 
 # end main
