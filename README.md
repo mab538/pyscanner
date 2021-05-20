@@ -1,6 +1,6 @@
 # pyscanner
 
-PyScanner is a basic port scanner built to learn socket programming in python. Just you nmap. 
+PyScanner is a basic port scanner built to learn scapy programming in python. Just use nmap. 
 
 # Running the Program
 
