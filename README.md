@@ -14,3 +14,15 @@ sudo -E env "PATH=$PATH" poetry run pyscanner <csv list of ip addresses or CIDR 
 # Credits
 
 This package was created by Mike Bosland
+
+# To Dos
+
+- [ ] Add tests
+- [ ] Add Dockerfile information
+- [ ] Add install instructions
+- [ ] Add TCP Connect scanning
+- [ ] Add FIN scanning
+- [ ] Add XMAS scanning
+- [ ] Add UDP scanning
+- [ ] Add data models for host, port for easier data display/export
+- [ ] Add data export options
